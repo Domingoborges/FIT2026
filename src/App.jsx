@@ -1,19 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { Search, MapPin, Users, Maximize, Lightbulb, Settings, ChevronLeft, Camera, Save, Image as ImageIcon, Phone, User, Mail, Bed, ExternalLink, Calendar, LogOut, Lock, Loader2 } from 'lucide-react';
+import { Search, MapPin, Users, Maximize, Lightbulb, Settings, ChevronLeft, Camera, Save, Image as ImageIcon, Phone, User, Mail, Bed, ExternalLink, Calendar, LogOut, Lock, Loader2, AlertCircle } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, getDocs, onSnapshot } from 'firebase/firestore';
 
-// --- CONFIGURACIÓN DE FIREBASE ---
-// Detectamos si estamos en el entorno local de tu ordenador (donde aún no hay llaves)
-const isLocalDev = typeof __firebase_config === 'undefined';
-const firebaseConfig = isLocalDev ? { apiKey: "demo", projectId: "demo", appId: "demo" } : JSON.parse(__firebase_config);
+// --- CONFIGURACIÓN DE FIREBASE (TUS LLAVES REALES) ---
+const firebaseConfig = {
+  apiKey: "AIzaSyD3LL0jgw7HDeDf4N-dVIr9AljQnObJ-a0",
+  authDomain: "fit2026.firebaseapp.com",
+  projectId: "fit2026",
+  storageBucket: "fit2026.firebasestorage.app",
+  messagingSenderId: "1076967640449",
+  appId: "1:1076967640449:web:c0e367d8e99b227031ec80",
+  measurementId: "G-WLFYBYCR1D"
+};
 
 const app = initializeApp(firebaseConfig);
-// Solo intentamos conectar si NO estamos en local
-const auth = isLocalDev ? null : getAuth(app);
-const db = isLocalDev ? null : getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// Identificador único para tus datos en Firestore
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'fit2026-produccion';
 
 // --- DATOS INICIALES ---
 const initialUsers = [
@@ -84,19 +91,14 @@ const initialLocations = [
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [authError, setAuthError] = useState(null);
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
   const [locations, setLocations] = useState(initialLocations);
   const [assignments, setAssignments] = useState(initialAssignments);
   const [loading, setLoading] = useState(true);
 
-  // 1. Inicializar Firebase Auth de forma segura
+  // 1. Inicializar Firebase Auth
   useEffect(() => {
-    if (isLocalDev) {
-      setFirebaseUser({ uid: 'usuario-local' });
-      setIsAuthReady(true);
-      return;
-    }
-
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -106,30 +108,28 @@ export default function App() {
         }
       } catch (error) {
         console.error("Error en auth:", error);
+        if (error.code === 'auth/configuration-not-found') {
+          setAuthError("Falta habilitar 'Acceso Anónimo' en el panel de Firebase.");
+        } else {
+          setAuthError("Error al conectar con la base de datos.");
+        }
       } finally {
         setIsAuthReady(true);
       }
     };
     initAuth();
     
-    const unsubscribe = auth ? onAuthStateChanged(auth, setFirebaseUser) : () => {};
+    const unsubscribe = onAuthStateChanged(auth, setFirebaseUser);
     return () => unsubscribe();
   }, []);
 
-  // 2. Cargar/Sincronizar datos de Firestore
+  // 2. Sincronizar con Firestore
   useEffect(() => {
     if (!isAuthReady || !firebaseUser) return;
-
-    if (isLocalDev) {
-      // En tu ordenador saltamos la carga de Firestore y mostramos los datos estáticos
-      setLoading(false);
-      return;
-    }
 
     const locationsRef = collection(db, 'artifacts', appId, 'public', 'data', 'locations');
     const assignmentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'assignments');
 
-    // Suscripción segura a locations
     const unsubLoc = onSnapshot(locationsRef, 
       (snapshot) => {
         const dbLocs = [];
@@ -137,7 +137,7 @@ export default function App() {
         
         const mergedLocations = initialLocations.map(initLoc => {
           const cloudLoc = dbLocs.find(l => l.id === initLoc.id);
-          return cloudLoc || initLoc;
+          return cloudLoc ? { ...initLoc, ...cloudLoc } : initLoc;
         });
         
         setLocations(mergedLocations.sort((a,b) => a.id - b.id));
@@ -150,7 +150,6 @@ export default function App() {
       }
     );
 
-    // Suscripción segura a assignments
     const unsubAsgn = onSnapshot(assignmentsRef,
       (snapshot) => {
         const dbAsgns = [];
@@ -176,21 +175,37 @@ export default function App() {
   const handleSaveLocation = async (updatedLocation) => {
     setLocations(prev => prev.map(loc => loc.id === updatedLocation.id ? updatedLocation : loc));
 
-    if (isLocalDev || !firebaseUser) return;
+    if (!firebaseUser) return;
     try {
       const locRef = doc(db, 'artifacts', appId, 'public', 'data', 'locations', updatedLocation.id.toString());
       await setDoc(locRef, updatedLocation);
     } catch (error) {
-      console.error("Error guardando en la nube:", error);
+      console.error("Error guardando:", error);
     }
   };
+
+  // Pantalla de error de configuración
+  if (authError) {
+    return (
+      <div className="bg-red-50 min-h-screen flex justify-center items-center p-6 text-center">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-sm border border-red-100">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Error de Configuración</h2>
+          <p className="text-gray-600 mb-6">{authError}</p>
+          <p className="text-xs text-gray-400 italic">
+            Configuración requerida: Authentication - Sign-in Method - Anónimo.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAuthReady || loading) {
     return (
       <div className="bg-gray-100 min-h-screen flex justify-center items-center">
         <div className="flex flex-col items-center text-orange-600">
           <Loader2 className="w-10 h-10 animate-spin mb-4" />
-          <p className="font-bold">Cargando producción...</p>
+          <p className="font-bold">Conectando con la nube de FIT26...</p>
         </div>
       </div>
     );
@@ -202,10 +217,10 @@ export default function App() {
         <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
           <div className="bg-orange-600 p-8 text-center text-white flex-shrink-0">
             <h1 className="text-3xl font-black mb-2">FIT26</h1>
-            <p className="opacity-90">Acceso a Producción</p>
+            <p className="opacity-90">Producción en tiempo real</p>
           </div>
           <div className="p-6 overflow-y-auto flex-1 space-y-3">
-            <h2 className="text-gray-500 font-bold text-sm uppercase mb-4 text-center">Selecciona tu perfil</h2>
+            <h2 className="text-gray-500 font-bold text-sm uppercase mb-4 text-center">Identifícate</h2>
             {initialUsers.map(user => (
               <button
                 key={user.id}
@@ -264,8 +279,8 @@ function AdminDashboard({ locations, assignments, onSaveLocation, onLogout }) {
           <div>
             <h1 className="text-xl font-bold flex items-center"><Lock className="w-4 h-4 mr-2 text-orange-500" /> SuperAdmin</h1>
             <p className="text-xs text-gray-400 flex items-center">
-              <span className={`w-2 h-2 rounded-full mr-1 ${isLocalDev ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`}></span>
-              {isLocalDev ? 'Modo de prueba local' : 'Conectado a la nube'}
+              <span className="w-2 h-2 rounded-full mr-1 bg-green-500 animate-pulse"></span>
+              Conectado a la nube
             </p>
           </div>
           <button onClick={onLogout} className="p-2 bg-gray-800 rounded-full hover:bg-gray-700"><LogOut className="w-4 h-4" /></button>
@@ -358,7 +373,7 @@ function CompanyDashboard({ user, locations, assignments, onLogout }) {
               <div key={assign.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="bg-gray-900 p-4 text-white flex justify-between items-center">
                   <div className="flex items-center">
-                    <div className="bg-orange-500 text-white rounded-lg p-2 mr-3 text-center leading-none">
+                    <div className="bg-orange-50 text-white rounded-lg p-2 mr-3 text-center leading-none">
                       <span className="block text-xs uppercase">{new Date(assign.date).toLocaleString('es', { month: 'short' })}</span>
                       <span className="block text-xl font-bold">{new Date(assign.date).getDate()}</span>
                     </div>
@@ -497,7 +512,7 @@ function DetailView({ location, onBack, onSave, readOnly = false }) {
         <footer className="bg-white border-t border-gray-200 p-4 sticky bottom-0">
           <button onClick={handleSaveClick} disabled={isSaving} className="w-full bg-orange-600 text-white font-bold py-3 px-4 rounded-xl shadow-lg hover:bg-orange-700 flex items-center justify-center disabled:opacity-50">
             {isSaving ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <Save className="w-5 h-5 mr-2" />}
-            {isSaving ? 'Guardado en modo prueba' : 'Guardar Ficha Técnica'}
+            {isSaving ? 'Guardando cambios...' : 'Guardar Ficha Técnica'}
           </button>
         </footer>
       )}
