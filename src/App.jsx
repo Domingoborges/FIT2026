@@ -97,17 +97,23 @@ export default function App() {
   const [assignments, setAssignments] = useState(initialAssignments);
   const [loading, setLoading] = useState(true);
 
-  // 1. Inicializar Firebase Auth
+  // 1. Inicializar Firebase Auth con gestión robusta de tokens
   useEffect(() => {
     const initAuth = async () => {
       try {
+        // Fallback robusto: si falla el token especial por desajuste, entramos como anónimo
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
+          try {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } catch (tokenError) {
+            console.warn("Aviso: Token inicial no válido, usando acceso anónimo:", tokenError.code);
+            await signInAnonymously(auth);
+          }
         } else {
           await signInAnonymously(auth);
         }
       } catch (error) {
-        console.error("Error en auth:", error);
+        console.error("Error crítico en auth:", error);
         if (error.code === 'auth/configuration-not-found') {
           setAuthError("Falta habilitar 'Acceso Anónimo' en el panel de Firebase.");
         } else {
@@ -190,7 +196,7 @@ export default function App() {
       <div className="bg-red-50 min-h-screen flex justify-center items-center p-6 text-center">
         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-sm border border-red-100">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Error de Configuración</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Error de Conexión</h2>
           <p className="text-gray-600 mb-6">{authError}</p>
           <p className="text-xs text-gray-400 italic">
             Configuración requerida: Authentication - Sign-in Method - Anónimo.
